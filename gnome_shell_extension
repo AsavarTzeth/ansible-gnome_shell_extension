@@ -34,6 +34,7 @@ import os.path
 import zipfile
 import tempfile
 import ast
+import shutil
 
 DOCUMENTATION = '''
 ---
@@ -127,8 +128,7 @@ def get_extension_info(module, name, url, gnome_version):
             msg="Failure downloading metadata from %s %s" % (url, e))
     return info
 
-def install_extension(
-    module, url, path, extension_url, uuid):
+def install_extension(module, url, path, extension_url, uuid):
     tmp_file = tempfile.TemporaryFile()
     download_url = url + extension_url
     try:
@@ -141,6 +141,12 @@ def install_extension(
         tmp_file.close()
     except Exception as e:
         module.fail_json(msg="Failure installing the plugin %s" % e)
+
+def remove_extension(module, path, uuid):
+    try:
+        shutil.rmtree(path)
+    except IOError as e:
+        module.fail_json(msg="failed to remove extension %s" % e)
 
 def get_installed_extension_info(
     module, path, uuid):
@@ -162,11 +168,10 @@ def main():
             gnome_version = dict(type='str'),
             gnome_extension_path = dict(required=True, type='str'),
         ),
-        supports_check_mode=True
+        supports_check_mode=False
     )
 
     name = module.params['name']
-    state = module.params['state']
     url = module.params['url']
     path = module.params['gnome_extension_path']
 
@@ -184,16 +189,17 @@ def main():
     download_url = extension_info['download_url']
     old_install_state = get_install_state(module, path, uuid)
 
-    # Install extension
-    if not old_install_state and not module.check_mode:
+    # Depending on state param, install/remove the extension
+    if not old_install_state and module.params['state'] == 'present':
         changed = not old_install_state
         install_extension(module, url, path, download_url, uuid)
+    elif old_install_state and module.params['state'] == 'absent':
+        changed = old_install_state
+        remove_extension(module, path, uuid)
 
-    # Get updated information about extension
-    new_value_is_installed = get_install_state(module, path, uuid)
+    # Depending on enabled param, enable/disable the extension
     old_value_is_enabled = get_enabled_state(module, uuid)
 
-    # Depending on enabled parameter, enable or disable the extension
     if not old_value_is_enabled and module.params['enabled'] is True:
         changed = not old_value_is_enabled
         enable_extension(module, uuid)
