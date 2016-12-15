@@ -81,13 +81,12 @@ EXAMPLES = '''
 # Module code.
 #
 
-def is_extension_installed(module, gnome_extension_path, extension_uuid):
-    return os.path.isfile(os.path.join(
-        gnome_extension_path, extension_uuid, "metadata.json")
-    )
+def get_install_state(module, path, uuid):
+    ext = os.path.join(path, uuid, "metadata.json")
+    return os.path.isfile(ext)
 
-def is_extensions_enabled(module, extension_uuid):
-    return extension_uuid in set(get_enabled_extensions_list(module))
+def get_enabled_state(module, uuid):
+    return uuid in set(get_enabled_extensions_list(module))
 
 def get_enabled_extensions_list(module):
     cmd = [module.get_bin_path('gsettings', True)]
@@ -101,14 +100,14 @@ def set_extensions(module, extension_list):
     cmd.extend(['"' + str(extension_list) + '"'])
     return module.run_command(cmd)
 
-def enable_extension(module, extension_uuid):
+def enable_extension(module, uuid):
     tmp_list = get_enabled_extensions_list(module)
-    tmp_list.append(str(extension_uuid))
+    tmp_list.append(str(uuid))
     set_extensions(module, tmp_list)
 
-def disable_extension(module, extension_uuid):
+def disable_extension(module, uuid):
     tmp_set = set(get_enabled_extensions_list(module))
-    tmp_set.remove(str(extension_uuid))
+    tmp_set.remove(str(uuid))
     set_extensions(module, list(tmp_set))
 
 def get_extension_info(module, name, url, gnome_version):
@@ -117,34 +116,31 @@ def get_extension_info(module, name, url, gnome_version):
             url + '/extension-info/?pk=' + str(name)
             + '&shell_version=' + gnome_version)
         info = json.load(info)
-    except Exception, e:
+    except Exception as e:
         module.fail_json(
             msg="Failure downloading metadata from %s %s" % (url, e))
     return info
 
 def install_extension(
-    module, url, gnome_extension_path, extension_url, extension_uuid):
+    module, url, path, extension_url, uuid):
     tmp_file = tempfile.TemporaryFile()
     download_url = url + extension_url
     try:
         tmp_file.write(urllib2.urlopen(download_url).read())
         zip_file = zipfile.ZipFile(tmp_file)
-        dest_dir = os.path.join(gnome_extension_path, extension_uuid)
+        dest_dir = os.path.join(path, uuid)
         if not os.path.isdir(dest_dir):
             os.makedirs(dest_dir)
         zip_file.extractall(dest_dir)
         tmp_file.close()
-    except Exception, e:
+    except Exception as e:
         module.fail_json(msg="Failure installing the plugin %s" % e)
 
 def get_installed_extension_info(
-    module, gnome_extension_path, extension_uuid):
+    module, path, uuid):
     try:
-        info = json.load(
-            open(os.path.join(
-                gnome_extension_path, extension_uuid, "metadata.json"))
-            )
-    except Exception, e:
+        info = json.load(open(os.path.join(path, uuid, "metadata.json")))
+    except Exception as e:
         module.fail_json(
             msg="Failure loading extension on local machine: %s" % e)
     return info
@@ -165,34 +161,34 @@ def main():
     name = module.params['name']
     state = module.params['state']
     url = module.params['url']
-    gnome_extension_path = module.params['gnome_extension_path']
+    path = module.params['gnome_extension_path']
 
+    # Get version of gnome-shell
     if not module.params['gnome_version']:
         cmd = [module.get_bin_path('gnome-shell', True)]
         cmd.append('--version')
         gnome_version = module.run_command(cmd)[1].split()[-1]
 
+    # Get required information about extension
     extension_info = get_extension_info(module, name, url, gnome_version)
+    uuid = extension_info['uuid']
+    download_url = extension_info['download_url']
+    old_value_is_installed = get_install_state(module, path, uuid)
 
-    old_value_is_installed = is_extension_installed(
-        module, gnome_extension_path, extension_info['uuid'])
-
+    # Install extension
     if not old_value_is_installed and not module.check_mode:
-        install_extension(
-            module, url, gnome_extension_path,
-            extension_info['download_url'], extension_info['uuid'])
-    new_value_is_installed = is_extension_installed(
-        module, gnome_extension_path, extension_info['uuid'])
+        install_extension(module, url, path, download_url, uuid)
 
-    old_value_is_enabled = is_extensions_enabled(
-        module, extension_info['uuid'])
+    # Get updated information about extension
+    new_value_is_installed = get_install_state(module, path, uuid)
+    old_value_is_enabled = get_enabled_state(module, uuid)
 
+    # Depending on state enable, or disable, the extension
     if not old_value_is_enabled or state == 'enabled':
-        enable_extension(module, extension_info['uuid'])
+        enable_extension(module, uuid)
     else:
-        disable_extension(module, extension_info['uuid'])
-    new_value_is_enabled = is_extensions_enabled(
-        module, extension_info['uuid'])
+        disable_extension(module, uuid)
+    new_value_is_enabled = get_enabled_state(module, uuid)
     module.exit_json(
             changed=old_value_is_installed !=
             new_value_is_installed or old_value_is_enabled !=
