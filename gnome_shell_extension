@@ -110,7 +110,6 @@ def enable_extension(module, uuid):
     tmp_list = get_enabled_extensions_list(module)
     tmp_list.append(str(uuid))
     set_extensions(module, tmp_list)
-    #module.exit_json(msg=tmp_list)
 
 def disable_extension(module, uuid):
     tmp_set = set(get_enabled_extensions_list(module))
@@ -144,7 +143,7 @@ def install_extension(module, url, path, extension_url, uuid):
 
 def remove_extension(module, path, uuid):
     try:
-        shutil.rmtree(path)
+        shutil.rmtree(path + uuid)
     except IOError as e:
         module.fail_json(msg="failed to remove extension %s" % e)
 
