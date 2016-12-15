@@ -98,7 +98,12 @@ def get_enabled_extensions_list(module):
     cmd = [module.get_bin_path('gsettings', True)]
     cmd.extend(['get', 'org.gnome.shell', 'enabled-extensions'])
     enabled_extensions_str = module.run_command(cmd)[1]
-    return ast.literal_eval(enabled_extensions_str)
+
+    # If no extensions are enabled gsettings returns invalid data
+    if not '@as []' in enabled_extensions_str:
+        return ast.literal_eval(enabled_extensions_str)
+    else:
+        return list([])
 
 def set_extensions(module, extension_list):
     cmd = [module.get_bin_path('gsettings')]
