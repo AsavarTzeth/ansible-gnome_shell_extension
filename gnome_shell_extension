@@ -58,6 +58,11 @@ options:
     default: "present"
     description:
       - The desired state of the extension.
+  enabled:
+    required: false
+    default: null
+    description:
+      - Whether the extension should be enabled or not.
   gnome_version:
     required: false
     description:
@@ -95,15 +100,16 @@ def get_enabled_extensions_list(module):
     return ast.literal_eval(enabled_extensions_str)
 
 def set_extensions(module, extension_list):
-    cmd = [module.get_bin_path('gsettings', True)]
+    cmd = [module.get_bin_path('gsettings')]
     cmd.extend(['set', 'org.gnome.shell', 'enabled-extensions'])
-    cmd.extend(['"' + str(extension_list) + '"'])
+    cmd.append(str(extension_list))
     return module.run_command(cmd)
 
 def enable_extension(module, uuid):
     tmp_list = get_enabled_extensions_list(module)
     tmp_list.append(str(uuid))
     set_extensions(module, tmp_list)
+    #module.exit_json(msg=tmp_list)
 
 def disable_extension(module, uuid):
     tmp_set = set(get_enabled_extensions_list(module))
@@ -152,6 +158,7 @@ def main():
                 default='present', choices=['present', 'absent'], type='str'),
             name  = dict(required=True, type='str'),
             url   = dict(default='https://extensions.gnome.org', type='str'),
+            enabled = dict(type='bool'),
             gnome_version = dict(type='str'),
             gnome_extension_path = dict(required=True, type='str'),
         ),
@@ -163,6 +170,8 @@ def main():
     url = module.params['url']
     path = module.params['gnome_extension_path']
 
+    changed = False
+
     # Get version of gnome-shell
     if not module.params['gnome_version']:
         cmd = [module.get_bin_path('gnome-shell', True)]
@@ -173,27 +182,26 @@ def main():
     extension_info = get_extension_info(module, name, url, gnome_version)
     uuid = extension_info['uuid']
     download_url = extension_info['download_url']
-    old_value_is_installed = get_install_state(module, path, uuid)
+    old_install_state = get_install_state(module, path, uuid)
 
     # Install extension
-    if not old_value_is_installed and not module.check_mode:
+    if not old_install_state and not module.check_mode:
+        changed = not old_install_state
         install_extension(module, url, path, download_url, uuid)
 
     # Get updated information about extension
     new_value_is_installed = get_install_state(module, path, uuid)
     old_value_is_enabled = get_enabled_state(module, uuid)
 
-    # Depending on state enable, or disable, the extension
-    if not old_value_is_enabled or state == 'enabled':
+    # Depending on enabled parameter, enable or disable the extension
+    if not old_value_is_enabled and module.params['enabled'] is True:
+        changed = not old_value_is_enabled
         enable_extension(module, uuid)
-    else:
+    elif old_value_is_enabled and module.params['enabled'] is False:
+        changed = old_value_is_enabled
         disable_extension(module, uuid)
-    new_value_is_enabled = get_enabled_state(module, uuid)
-    module.exit_json(
-            changed=old_value_is_installed !=
-            new_value_is_installed or old_value_is_enabled !=
-            new_value_is_enabled, msg=extension_info
-    )
+
+    module.exit_json(changed=changed, msg=extension_info)
 
 from ansible.module_utils.basic import AnsibleModule
 if __name__ == '__main__':
